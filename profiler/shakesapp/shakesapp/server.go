@@ -21,7 +21,6 @@ import (
 	"context"
 	"fmt"
 	"io/ioutil"
-	"regexp"
 	"strings"
 
 	"cloud.google.com/go/storage"
@@ -42,6 +41,8 @@ func NewServer() ShakespeareServiceServer {
 const bucketName = "dataflow-samples"
 const bucketPrefix = "shakespeare/"
 
+var files []string
+
 // GetMatchCount implements a server for ShakespeareService.
 func (s *server) GetMatchCount(ctx context.Context, req *ShakespeareRequest) (*ShakespeareResponse, error) {
 	resp := &ShakespeareResponse{}
@@ -54,11 +55,7 @@ func (s *server) GetMatchCount(ctx context.Context, req *ShakespeareRequest) (*S
 			line, query := strings.ToLower(line), strings.ToLower(req.Query)
 			// TODO: Compiling and matching a regular expression on every request
 			// might be too expensive? Consider optimizing.
-			isMatch, err := regexp.MatchString(query, line)
-			if err != nil {
-				return resp, err
-			}
-			if isMatch {
+			if strings.Contains(line, query) {
 				resp.MatchCount++
 			}
 		}
@@ -70,6 +67,11 @@ func (s *server) GetMatchCount(ctx context.Context, req *ShakespeareRequest) (*S
 // specified prefix path in parallel and returns their content. It fails if
 // operations to find or read any of the files fails.
 func readFiles(ctx context.Context, bucketName, prefix string) ([]string, error) {
+	// return if defined
+	if files != nil {
+		return files, nil
+	}
+
 	type resp struct {
 		s   string
 		err error
@@ -111,13 +113,16 @@ func readFiles(ctx context.Context, bucketName, prefix string) ([]string, error)
 			resps <- resp{string(data), err}
 		}(path)
 	}
-	ret := make([]string, len(paths))
+
+	// Save the result in the variable files
+	files = make([]string, len(paths))
 	for i := 0; i < len(paths); i++ {
 		r := <-resps
 		if r.err != nil {
-			err = r.err
+			return nil, r.err
 		}
-		ret[i] = r.s
+		files[i] = r.s
 	}
-	return ret, err
+
+	return files, nil
 }
